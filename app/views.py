@@ -1,7 +1,7 @@
 from flask import Flask, abort, request, render_template, redirect, session, \
     flash, g, url_for
 from flask.ext.login import login_user, logout_user, current_user, LoginManager, \
-    UserMixin # pip install flask-login
+    UserMixin,login_required # pip install flask-login
 from flask.ext.sqlalchemy import get_debug_queries
 import base64
 import json
@@ -9,9 +9,9 @@ from uuid import uuid4
 import requests
 import requests.auth
 from urllib.parse import urlencode
-from config import CLIENT_ID, CLIENT_SECRET, \
-    REDIRECT_URI, AUTHORITY, AUTHORIZE_URL, TOKEN_URL, RESOURCE_URL, \
+from config import REDIRECT_URI, AUTHORIZE_URL, TOKEN_URL, RESOURCE_URL, \
     DATABASE_QUERY_TIMEOUT
+from config_secret import CLIENT_ID, CLIENT_SECRET
 from datetime import datetime
 from app import app, db, lm
 
@@ -76,31 +76,32 @@ def user_loader(user_id):
 # This function creates the signin URL that the app will
 # direct the user to in order to sign in to Office 365 and
 # give the app consent.
-def get_signin_url(redirect_uri):
+def get_signin_url(redirect_uri, env):
     # Build the query parameters for the signin URL.
-    params = { 'client_id': CLIENT_ID,
-               'redirect_uri': redirect_uri,
-               'response_type': 'code'
-             }
+    params = {
+        'client_id': CLIENT_ID,
+        'redirect_uri': redirect_uri.format(env),
+        'response_type': 'code'
+    }
 
-    signin_url = AUTHORIZE_URL.format(urlencode(params))
+    signin_url = AUTHORIZE_URL[env].format(urlencode(params))
     return signin_url
 
 # This function passes the authorization code to the token
 # issuing endpoint, gets the token, and then returns it.
-def get_token_from_code(auth_code, redirect_uri):
+def get_token_from_code(auth_code, redirect_uri, env):
     # Build the post form for the token request
     post_data = {
         'grant_type': 'authorization_code',
-        'redirect_uri': redirect_uri,
+        'redirect_uri': redirect_uri.format(env),
         'client_id': CLIENT_ID,
         'client_secret': CLIENT_SECRET,
         'code': auth_code,
-        'resource': RESOURCE_URL
+        'resource': RESOURCE_URL[env]
     }
 
     # Set verify = False to suppress SSL certificate error for Fiddler
-    r = requests.post(TOKEN_URL, data = post_data, verify = True)
+    r = requests.post(TOKEN_URL[env], data = post_data, verify = True)
     if r.status_code != 200:
         return 'Error failed to get access token'
 
@@ -171,15 +172,17 @@ def homepage():
   </body>
 </html>
 '''
-    #return text % get_signin_url(REDIRECT_URI)
+    #return text % get_signin_url(REDIRECT_URI, "ppe")
     return text % "/authorize/test"
 
-@app.route('/authorize/<env>')
+@app.route('/oauth_authorize/<env>')
+@login_required
 def oauth_authorize(env):
-    if not current_user.is_anonymous:
-        return redirect(url_for('index'))
+    if g.user.is_anonymous:
+        return redirect(url_for('login'))
 
-    return redirect(get_signin_url(REDIRECT_URI))
+    session['env'] = env;
+    return redirect(get_signin_url(REDIRECT_URI, env))
 
 # Left as an exercise to the reader.
 # You may want to store valid states in a database or memcache.
@@ -189,8 +192,8 @@ def is_valid_state(state):
     return True
 
 # This is app's redirect URI called after authentication request to OAuth server.
-@app.route('/oauth_callback')
-def oauth_callback():
+@app.route('/oauth_callback/<env>', methods=['GET'])
+def oauth_callback(env):
     error = request.args.get('error', '')
     if error:
         return "Error: " + error
@@ -200,7 +203,7 @@ def oauth_callback():
         abort(403)
 
     auth_code = request.args.get('code')
-    token = get_token_from_code(auth_code, REDIRECT_URI)
+    token = get_token_from_code(auth_code, REDIRECT_URI, env)
     access_token = token['access_token']
     
     user_info = get_user_info_from_token(token['id_token'])
@@ -215,10 +218,13 @@ def oauth_callback():
     session['email'] = email
     session['oauth_access_token'] = access_token
     session['oauth_refresh_token'] = token['refresh_token']
-
-    user = User(email=email, access_token=access_token)
-    login_user(user, True)
-
+ 
+    oauthtoken = OAuthToken( \
+        email=email, env=env, \
+        access_token=access_token, refresh_token=token['refresh_token'])
+    db.session.add(oauthtoken)
+    db.session.commit()
+            
     flash('Logged in successfully.')
 
     return "alias = {0}, email = {1}, access token = {2}".format(
@@ -227,13 +233,13 @@ def oauth_callback():
         access_token)
 
 
-@app.route('/refresh_token')
-def refresh_token():
+@app.route('/refresh_token/<env>')
+def refresh_token(env):
     # Build the post form for the token request
     post_data = {
         'grant_type': 'refresh_token',
         'refresh_token': session['oauth_refresh_token'],
-        'redirect_uri': redirect_uri,
+        'redirect_uri': redirect_uri.format(env),
         'client_id': CLIENT_ID,
         'client_secret': CLIENT_SECRET
     }
@@ -252,6 +258,7 @@ def refresh_token():
 
 
 @app.route('/logout')
+@login_required
 def logout():
     logout_user()
     return redirect(url_for('index'))
@@ -307,4 +314,4 @@ def index():
     return render_template('index.html')
 
 if __name__ == '__main__':
-    app.run(debug=True, port=65010)
+    app.run(debug=True, port=65050)

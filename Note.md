@@ -17,11 +17,17 @@
 ~~~
 pip install flask
 pip install requests
-pip install urllib
 pip install flask-login
 pip install flask-sqlalchemy
 ~~~
 
+## Hot to Run ##
+1. `ngrok`
+    1. Run "ngrok http 65010"
+    2. Update reply url from https://windows.azure-test.net/prepsp.ccsctp.net
+        * Username: `billtest@prepsp.ccsctp.net`
+        * Active Directory -> Microsoft -> Applications -> 
+    3. Update NGROK_URI in `cofig.py`
 
 ## Subscription Endpoints ##
 * PPE: https://graph.microsoft-ppe.com/beta/subscriptions

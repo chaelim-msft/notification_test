@@ -2,6 +2,18 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h1>TEST</h1>
-    {% include 'flash.html' %}
+  {% include 'flash.html' %}
+  {% if current_user.is_authenticated %}
+  <div class="container">
+    <div class="jumbotron">
+      <h2>Select Graph API Environment</h2>
+      <p>...</p>
+      <p>
+        <a class="btn btn-primary btn-lg" href="oauth_authorize/test" role="button">TEST</a>
+        <a class="btn btn-warning btn-lg" href="oauth_authorize/ppe" role="button">PPE</a>
+        <a class="btn btn-danger  btn-lg" href="oauth_authorize/prod" role="button">PROD</a>
+      </p>
+    </div>
+  </div>
+  {% endif %}
 {% endblock %}
